@@ -1,0 +1,16 @@
+---
+# defaults file for pwr-datadog
+sumologic_config_dir: /opt/SumoCollector/config
+sumologic_config_dir_owner: root
+sumologic_sources_dir: /opt/SumoCollector/sources
+sumologic_collector_url: https://collectors.us2.sumologic.com
+# For RedHat only
+sumocollector_installer_rpm: "https://collectors.sumologic.com/rest/download/rpm/64"
+sumologic_installer_rpm_local_folder: "/tmp"
+# 
+sumologic_collector_accessid: ""
+sumologic_collector_accesskey: ""
+#
+sumologic_collector_name: ""
+sumologic_collector_timezone: "UTC"
+sumologic_collector_log_paths: ""

@@ -1,0 +1,7 @@
+---
+- name: 'Restart SumoCollector'
+  service:
+    name: collector
+    state: restarted
+  changed_when: True
+  become: true

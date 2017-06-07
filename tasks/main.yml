@@ -1,0 +1,51 @@
+---
+# tasks file for pwr-datadog
+- name: 'Download SumoCollector redhat'
+  get_url:
+    url: '{{ sumocollector_installer_rpm }}'
+    dest: '{{ sumologic_installer_rpm_local_folder }}/sumo_collector.rpm'
+  when: ansible_os_family == "RedHat"
+
+- name: 'Install SumoCollector redhat'
+  yum:
+    name: '{{ sumologic_installer_rpm_local_folder }}/sumo_collector.rpm'
+    state: present
+  when: ansible_os_family == "RedHat"
+  notify: Restart SumoCollector
+  become: true
+
+- name: 'Ensure sumologic_config_dir exists'
+  file:
+    state: directory
+    dest: "{{ sumologic_config_dir }}"
+    mode: 0700
+    owner: "{{ sumologic_config_dir_owner }}"
+  become: true
+
+- name: 'Create sumo agent configuration file'
+  template:
+    src: user.properties.j2
+    dest: '{{ sumologic_config_dir }}/user.properties'
+    mode: 0700
+    owner: "{{ sumologic_config_dir_owner }}"
+  notify: Restart SumoCollector
+  become: true
+
+- name: 'Ensure sumo sources directory exists'
+  file:
+    state: directory
+    dest: "{{ sumologic_sources_dir }}"
+  become: true
+
+- name: 'Create collector sources configuration file'
+  template:
+    src: collector.json.j2
+    dest: '{{ sumologic_sources_dir }}/sumologic-collector.json'
+  notify: Restart SumoCollector
+  become: true
+
+- name: 'Start SumoCollector on boot'
+  service:
+    name: collector
+    enabled: yes
+  become: true
