@@ -44,9 +44,12 @@
   notify: Restart SumoCollector
   become: true
 
+- name: Enable SumoCollector
+  command: 'systemctl enable collector'
+  become: true
+
 - name: 'Start SumoCollector on boot'
-  systemd:
+  service:
     name: collector
     enabled: yes
-    force: yes
   become: true
