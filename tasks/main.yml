@@ -46,6 +46,7 @@
 
 - name: Enable SumoCollector
   command: 'systemctl enable collector'
+  when: ansible_service_mgr == "systemd"
   become: true
 
 - name: 'Start SumoCollector on boot'
