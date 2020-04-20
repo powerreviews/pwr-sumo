@@ -45,7 +45,7 @@
   become: true
 
 - name: 'Start SumoCollector on boot'
-  systemd:
+  sysvinit:
     name: collector
     enabled: yes
   become: true
