@@ -43,10 +43,9 @@
     dest: '{{ sumologic_sources_dir }}/sumologic-collector.json'
   notify: Restart SumoCollector
   become: true
-- debug:
-    var: ansible_service_mgr
+
 - name: 'Start SumoCollector on boot'
-  sysvinit:
+  service:
     name: collector
     enabled: yes
   become: true
