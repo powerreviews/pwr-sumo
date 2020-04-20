@@ -45,7 +45,8 @@
   become: true
 
 - name: 'Start SumoCollector on boot'
-  service:
+  systemd:
     name: collector
     enabled: yes
+    force: yes
   become: true
