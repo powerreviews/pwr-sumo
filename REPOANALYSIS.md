@@ -186,3 +186,59 @@ Derived from git history; current HEAD is `3724f3d`.
 - **Activity level**: **0 commits in the last 90 days** (as of 2026-05-12). The repo has been effectively dormant since July 2020.
 - **Hot spots** (top files by churn over the last 6 months): _No commits in the last 6 months — no hot spots._ For historical context, lifetime churn concentrates in `tasks/main.yml`, `.github/workflows/secrets-scan.yml`, and `templates/` (each touched 2–3 times).
 - **Recent major changes**: _No major changes in the last 6 months._ Historically, the only notable changes are: (a) the 2017 initial implementation, (b) the April 2020 PR #1 ("tableau") that hardened service-manager handling on systemd, and (c) the July 2020 addition of the trufflehog-based secrets-scan GitHub Actions workflow.
+
+---
+
+## Revised Summary
+_Revised on 2026-05-12 against commit 5c6ee8d_
+
+### Overview
+`pwr-sumo` is an Ansible role that installs the Sumo Logic Collector agent on RHEL/Amazon Linux hosts so that on-host log files are forwarded to PowerReviews' Sumo Logic US2 tenant. It is one of the org's foundational observability provisioning blocks — alongside `ansible-datadog` (Datadog agent) and `kinesis-infrastructure` (CloudWatch→SumoLogic via Firehose) — and is the canonical way EC2-based services (Tableau, Elasticsearch, partner SFTP, ECS AMIs, CAPP uploader) get their app/system logs into Sumo. Domain: log-forwarding agent provisioning. The role is effectively dormant (last meaningful commit April 2020) but remains load-bearing because the broader org has not finished migrating off self-managed EC2 fleets.
+
+### Tech Stack
+| Category | Technology | Version |
+|----------|-----------|---------|
+| Language | YAML (Ansible) | _Not specified_ |
+| Framework | Ansible role | declared `min_ansible_version: 1.2` (stale; modules used require modern Ansible) |
+| Build Tool | _N/A — consumed in source form by including playbooks_ | _N/A_ |
+| CI/CD | GitHub Actions (secrets-scan only) | workflow added 2020-07 |
+| Cloud/Infra | Sumo Logic SaaS (US2 region) | endpoint `collectors.us2.sumologic.com`; RPM from `collectors.sumologic.com` |
+
+### Consumers
+| Consumer | Type | How They Use It |
+|----------|------|----------------|
+| `capp-uploader` | Org Repo | Lists `pwr-sumo` as a runtime dependency; Sumo agent ships the CAPP batch-job logs |
+| `pwr-tableau` | Org Repo | Bakes Sumo agent into clustered Tableau Server AMIs via this role |
+| `pwr-elasticsearch` | Org Repo | Installs Sumo on self-managed ES 5.4.3 EC2 nodes |
+| `partners-sftp` | Org Repo | Provisions Sumo on the partner SFTP/FTPS landing-zone server |
+| `ansible-ami` / `ansible-playbooks` / `devops-playbooks` | Org Repo (inferred) | Standard locations for AMI baking and EC2 provisioning that would include this role; not declared in this repo but consistent with the role's RHEL-only scope |
+| Sumo Logic SaaS (US2) | Cloud Service | Receives forwarded log records via the collector daemon |
+| GitHub Actions / `rtCamp/action-slack-notify` → `#github-token-scan` | CI System / External API | Scheduled trufflehog scan posts on failure |
+
+### Dependencies on Org Repos
+| Repo | Reason |
+|------|--------|
+| _None (outbound)_ | `meta/main.yml` declares `dependencies: []`; the role calls no other repo |
+
+### Upgrade Alerts
+| Dependency | Current Version | Issue | Severity |
+|-----------|----------------|-------|----------|
+| `actions/checkout@master` | mutable `@master` ref | Supply-chain risk: unpinned ref; `@master` was renamed to `@main` and v1 is long-deprecated (v4 current) | Severe |
+| `edplato/trufflehog-actions-scan@master` | mutable `@master` ref | Unmaintained third-party action; org has largely moved to `trufflesecurity/trufflehog` (visible across the TruffleHog footprint table) — pin and migrate | Severe |
+| `rtCamp/action-slack-notify@v2.0.2` | v2.0.2 (2020) | Five-plus years behind current; supersedes available | Severe |
+| Declared `min_ansible_version: 1.2` | Ansible 1.2 floor | Ansible 1.2 is long EOL; modules used (`get_url`, `yum`, `service`, `template`) require modern Ansible | Severe |
+
+### Coupling Profile
+| Dependency | Protocol | Frequency Pattern | Failure Mode |
+|-----------|----------|-------------------|--------------|
+| Sumo Logic ingest (`collectors.us2.sumologic.com`) | sync HTTPS (Sumo agent protocol) over a daemon | continuous tail of local log files | soft — if Sumo is down, the collector buffers locally; host workload continues |
+| Sumo Logic RPM download (`collectors.sumologic.com/rest/download/rpm/64`) | sync HTTPS GET via `get_url` | one-shot at role apply (AMI bake / provisioning) | hard — playbook run fails if endpoint is unreachable or returns a broken RPM (no checksum pinning, no version pinning) |
+| `collector` systemd unit | local IPC (systemd) | startup-only (enable + start); restart on config/RPM change via handler | hard at provisioning, soft at runtime — restart handler fires only inside the play |
+| GitHub Actions → Slack `#github-token-scan` | sync HTTPS webhook | scheduled cron `0 14 * * 1-5` | soft — scan failures notify; no enforcement |
+| TruffleHog action (GitHub Action) | sync (CLI in workflow) | scheduled (weekdays 14:00 UTC) | hard inside the workflow, soft for the repo (no merge gate) |
+| Consumers (`capp-uploader`, `pwr-tableau`, `pwr-elasticsearch`, `partners-sftp`) | Ansible role include (source vendoring) | one-shot at AMI bake / provisioning | hard — broken role tasks fail the playbook for every consumer simultaneously |
+
+### Architectural Notes
+- **Shared infrastructure**: This is the org's primary EC2-side ingress into Sumo Logic. The org-summary's Sumo Logic footprint spans ~28 repos, and `pwr-sumo` is the host-agent provisioning path for the EC2-resident subset of that footprint. The other Sumo ingress paths in the org are `kinesis-infrastructure` (CloudWatch logs → Firehose → Sumo) for AWS-managed services and direct HTTP collectors used by Lambdas / containerized services — `pwr-sumo` covers neither. As the org-summary's Org Health Score flags, observability is fragmented across Sumo, Datadog, Rollbar, AppSignal, New Relic, TrackJS, Sentry, and Mixpanel; this role is one strand of that.
+- **Bounded-context overlaps**: None at the data-model level (no domain entities). At the infra level, the role overlaps conceptually with `ansible-datadog` (which is referenced by `devops-playbooks`, `database`, `pwr-elasticsearch`, `pwr-tableau`, `partners-sftp`, `legacy-puppetmaster`, etc.) — the same hosts typically get both agents installed in sequence. There is no shared variable convention between the two roles, so callers must wire credentials and log-path lists independently.
+- **Architectural evolution**: Lifetime history is short and tightly bounded. Initial commit 2017-06-07 by `badmadrad`; the only substantive change is the April 2020 PR #1 ("tableau") cluster that hardened systemd handling (`systemctl enable collector` was added because the `service` module alone wasn't enabling on the Tableau hosts — note the misleading `# tasks file for pwr-datadog` header comment in `tasks/main.yml`, evidence this role was copy-paste-bootstrapped from `ansible-datadog`). The July 2020 commits only add the trufflehog secrets-scan workflow. Zero commits in the last 90 days (and effectively zero since July 2020) reflects the broader org shift away from EC2/AMI deployments toward ECS/Fargate (`pwr-terraform-ecs`, `pwr-service-deploy-orb`) and CloudWatch-based log shipping — where this role does not apply. It will remain load-bearing until the last EC2-resident consumers (notably `pwr-tableau`, `pwr-elasticsearch`, `partners-sftp`, legacy AMIs baked via `ansible-ami`) are retired or re-platformed.
